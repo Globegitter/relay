@@ -133,7 +133,11 @@ describe('RelayMutation', () => {
       feedbackID,
       doesViewerLike: true,
     });
-    environment.applyUpdate(mutation);
+    const callbacks = {
+      onSuccess: jest.fn(),
+      onFailure: jest.fn(),
+    };
+    environment.applyUpdate(mutation, callbacks);
 
     const data = environment.readQuery(query)[0];
     expect(data).toEqual({
@@ -148,6 +152,10 @@ describe('RelayMutation', () => {
         text: 'Give Relay',
       },
     });
+
+    // Callbacks don't fire for optimistic updates.
+    expect(callbacks.onFailure).not.toBeCalled();
+    expect(callbacks.onSuccess).not.toBeCalled();
   });
 
   it('reverts optimistic payloads asynchronously', () => {
@@ -242,11 +250,12 @@ describe('RelayMutation', () => {
 });
 
 describe('RelayMutation list mutations', () => {
-  let bodyID;
   let environment;
   let feedbackID;
   let storeData;
   let query;
+  let comment1;
+  let comment2;
 
   beforeEach(() => {
     jest.resetModuleRegistry();
@@ -262,6 +271,17 @@ describe('RelayMutation list mutations', () => {
             ... on Feedback {
               __typename
               id
+              topLevelComments(first:"10") {
+                count
+                edges {
+                  node {
+                    id
+                    body {
+                      text
+                    }
+                  }
+                }
+              }
               simpleTopLevelComments {
                 id
                 body {
@@ -276,29 +296,42 @@ describe('RelayMutation list mutations', () => {
         id: feedbackID,
       }
     );
-    storeData.handleQueryPayload(
-      query,
-      {
-        node: {
-          id: feedbackID,
-          __typename: 'Feedback',
-          simpleTopLevelComments: [
-            {
-              id: 'comment1',
-              body: {
-                text: 'First comment'
-              }
-            },
-            {
-              id: 'comment2',
-              body: {
-                text: 'Another great comment'
-              }
-            }
-          ]
-        },
+
+    comment1 = {
+      id: 'comment1',
+      body: {
+        id: 'body1',
+        text: 'First comment'
       }
-    );
+    };
+
+    comment2 = {
+      id: 'comment2',
+      body: {
+        id: 'body2',
+        text: 'Another great comment'
+      }
+    };
+    const transformRelayQueryPayload = require('transformRelayQueryPayload');
+    const payload = {
+      node: {
+        id: feedbackID,
+        __typename: 'Feedback',
+        topLevelComments: {
+          count: '2',
+          edges: [{
+            cursor: comment1.id + ':cursor',
+            node: comment1
+          }, {
+            cursor: comment2.id + ':cursor',
+            node: comment2
+          }]
+        },
+        simpleTopLevelComments: [comment1, comment2]
+      },
+    };
+
+    storeData.handleQueryPayload(query, transformRelayQueryPayload(query, payload));
     // bodyID = storeData.getCachedStore().getLinkedRecordID(feedbackID, 'body');
   });
 
@@ -321,64 +354,169 @@ describe('RelayMutation list mutations', () => {
     }
 
     getConfigs() {
-      const parentID = '123';
-      const listName = 'simpleTopLevelComments';
-      const newElementName = 'comment';
-      const rangeBehaviors = () => GraphQLMutatorConstants.PREPEND;
-      return [
-        {
-          type: RelayMutationType.RANGE_ADD,
-          parentID,
-          listName,
-          newElementName,
-          rangeBehaviors,
-        },
-      ];
+      if (this.props.connectionMutation) {
+        console.log('we are in here getConfigs!');
+        return [
+          {
+            type: RelayMutationType.RANGE_ADD,
+            connectionName: 'topLevelComments',
+            edgeName: 'feedbackCommentEdge',
+            rangeBehaviors: () => GraphQLMutatorConstants.APPEND,
+          }
+        ];
+      } else {
+        return [
+          {
+            type: RelayMutationType.RANGE_ADD,
+            parentID: feedbackID,
+            listName: 'simpleTopLevelComments',
+            newElementName: 'comment',
+            rangeBehaviors: () => GraphQLMutatorConstants.APPEND,
+          },
+        ];
+      }
     }
     getOptimisticResponse() {
-      return {
-        comment: {
-          id: 'comment3',
-          body: {
-            text: 'I am an optimistic comment.'
-          }
-        },
-      };
+      console.log('we have', this.props);
+      if (this.props.connectionMutation) {
+        console.log('we are in here optimsitict!');
+        return {
+          feedbackCommentEdge: {
+            __typename: 'CommentsEdge',
+            cursor: 'comment3:cursor',
+            node: {
+              // id: 'comment3',
+              body: {
+                text: 'I am an optimistic edge comment.',
+              },
+            },
+            source: {
+              id: feedbackID,
+            },
+          },
+        };
+      } else {
+        return {
+          comment: {
+            // id: 'comment3',
+            // id: 'client:-12736066694',
+            body: {
+              id: 'body3',
+              text: 'I am an optimistic comment.'
+            }
+          },
+        };
+      }
     }
   }
 
-  fit('optimistically adds new element to list', () => {
+  fit('optimistically appends a new edge to the connection', () => {
+    const mutation = new NewCommentMutation({connectionMutation: true});
+    environment.applyUpdate(mutation);
+
+    const data = environment.readQuery(query)[0];
+    // are not interested in simpleTopLevelComments in this test
+    delete data['simpleTopLevelComments'];
+    const expectedData = {
+      __dataID__: feedbackID,
+      __status__: 1,
+      __mutationStatus__: '0:UNCOMMITTED',
+      __typename: 'Feedback',
+      id: feedbackID,
+      topLevelComments: {
+        edges: [{
+          node: {
+            __dataID__: comment1.id,
+            id: comment1.id,
+            body: {
+              __dataID__: comment1.body.id,
+              text: comment1.body.text
+            }
+          }
+        }, {
+          node: {
+            __dataID__: comment2.id,
+            id: comment2.id,
+            body: {
+              __dataID__: comment2.body.id,
+              text: comment2.body.text
+            }
+          }
+        }, {
+          node: {
+            __dataID__: 'comment3',
+            id: 'comment3',
+            __mutationStatus__: '0:UNCOMMITTED',
+            __status__: 1,
+            body: {
+              __dataID__: 'body3',
+              text: 'I am an optimistic comment.',
+              __status__: 1,
+              __mutationStatus__: '0:UNCOMMITTED'
+            }
+          }
+        },
+      ]},
+    };
+    console.log('---------> printing data in test:');
+    console.log(JSON.stringify(data, null, 2));
+    console.log('--------------------');
+    console.log(JSON.stringify(expectedData, null, 2));
+    expect(data).toEqual(expectedData);
+    console.log('DONE WITH FIRST FIT TEST!!!!');
+  });
+
+  fit('optimistically appends a new element to the list', () => {
     const mutation = new NewCommentMutation();
     environment.applyUpdate(mutation);
 
     const data = environment.readQuery(query)[0];
-    console.log(data);
-    expect(data).toEqual({
-      __dataID__: 'feedbackID',
-      __mutationStatus__: '0:UNCOMMITTED',
+    delete data['topLevelComments'];
+    const expectedData = {
+      __dataID__: feedbackID,
       __status__: 1,
+      __mutationStatus__: '0:UNCOMMITTED',
       __typename: 'Feedback',
       id: feedbackID,
       simpleTopLevelComments: [
         {
-          id: 'comment1',
+          __dataID__: comment1.id,
+          id: comment1.id,
           body: {
-            text: 'First comment'
+            __dataID__: comment1.body.id,
+            text: comment1.body.text
           }
         },
         {
-          id: 'comment2',
+          __dataID__: comment2.id,
+          id: comment2.id,
           body: {
-            text: 'Another great comment'
+            __dataID__: comment2.body.id,
+            text: comment2.body.text
           }
         },
         {
+          __dataID__: 'comment3',
           id: 'comment3',
+          __mutationStatus__: '0:UNCOMMITTED',
+          __status__: 1,
           body: {
-            text: 'I am an optimistic comment.'
+            __dataID__: 'body3',
+            text: 'I am an optimistic comment.',
+            __status__: 1,
+            __mutationStatus__: '0:UNCOMMITTED'
           }
         },
       ],
-    });
+    };
+    console.log('**************');
+    console.log(JSON.stringify(data, null, 2));
+    console.log('******************');
+    console.log(JSON.stringify(expectedData, null, 2));
+    console.log('******************');
+
+
+
+    expect(data).toEqual(expectedData);
   });
 });

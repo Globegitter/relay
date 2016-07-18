@@ -333,9 +333,9 @@ function _prepareSimpleRangeAdd(
   );
 
   const nodeID = getString(newElement || {}, ID) || generateClientID();
+  newElement['id'] = nodeID;
   const elementData = {
-    ...newElement,
-    id: nodeID,
+    ...newElement
   };
 
   return [parentID, nodeID, elementData];
@@ -375,7 +375,8 @@ function handleRangeAdd(
       config,
       connectionParentID,
       nodeID,
-      rangeData
+      rangeData,
+      isOptimisticUpdate
     );
   } else {
     // Extracts the new edge from the payload
@@ -384,7 +385,6 @@ function handleRangeAdd(
     if (!edge || !edgeNode) {
       return;
     }
-
     // Extract the id of the node with the connection that we are adding to.
     let connectionParentID = config.parentID;
     if (!connectionParentID) {
@@ -459,9 +459,11 @@ function addRangeElement(
   config: OperationConfig,
   parentID: DataID,
   newElementID: DataID,
-  newElementData: any
+  newElementData: any,
+  isOptimisticUpdate: boolean,
 ) {
   const recordWriter = writer.getRecordWriter();
+  const store = writer.getRecordStore();
   const rangeBehavior = getRangeBehavior(config.rangeBehaviors, []);
   if (!rangeBehavior || rangeBehavior === IGNORE) {
     warning(
@@ -472,10 +474,25 @@ function addRangeElement(
     return;
   }
 
-  const path = RelayQueryPath.createForID(newElementID, config.listName);
+  // const path = RelayQueryPath.createForID(newElementID, config.listName);
+  // const path = RelayQueryPath.getPath({}, nodeField, newElementID);
+  // console.log('<><><><><><>sdgdr:');
+  // console.log(writer._store._records);
+  // console.log('*************');
+  // console.log(writer._store._storage);
+  // console.log('*************');
+  // console.log(writer._queryTracker);
+  // console.log('*************');
+  // console.log(writer._writer);
+  // console.log('*************');
+  // console.log(store.getFieldNameFromKey(parentID));
+  // console.log(path);
+  // let path = store.getPathToRecord(parentID);
+  // console.log('got path', path);
+  const path = RelayQueryPath.createForID(newElementID, config.listName)
   invariant(
     path,
-    'writeRelayUpdatePayload(): Expected a path for connection record, `%s`.',
+    'writeRelayUpdatePayload(): Expected a path for list record, `%s`.',
     parentID
   );
 
@@ -487,12 +504,18 @@ function addRangeElement(
       isPlural: false,
     },
   });
+  // path, EDGES_FIELD, edgeID
+  // path = RelayQueryPath.getPath(path, nodeField, newElementID);
+  // path = {};
+  console.log('new path', path);
+
   // create the element record
   writer.createRecordIfMissing(nodeField, newElementID, path, newElementData);
-
   // append/prepend the item to the range.
   if (rangeBehavior in GraphQLMutatorConstants.RANGE_OPERATIONS) {
-    recordWriter.applyRangeElementUpdate(parentID, config.listName, newElementID, (rangeBehavior: any));
+    const existingRecords = isOptimisticUpdate ? store.getField(parentID, config.listName) : [];
+    recordWriter.applyRangeElementUpdate(parentID, config.listName, newElementID, (rangeBehavior: any),
+      (existingRecords: any));
     writer.recordUpdate(parentID);
   } else {
     console.error(
@@ -538,12 +561,15 @@ function addRangeNode(
 
   const edgeID = generateClientEdgeID(connectionID, nodeID);
   let path = store.getPathToRecord(connectionID);
+  console.log('got path', path);
   invariant(
     path,
     'writeRelayUpdatePayload(): Expected a path for connection record, `%s`.',
     connectionID
   );
   path = RelayQueryPath.getPath(path, EDGES_FIELD, edgeID);
+  console.log('new path for connection is', path);
+
 
   // create the edge record
   writer.createRecordIfMissing(EDGES_FIELD, edgeID, path, edgeData);
