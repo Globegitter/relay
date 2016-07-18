@@ -1996,7 +1996,12 @@ return /******/ (function(modules) { // webpackBootstrap
 	 */
 	var RelayQueryPath = {
 	  createForID: function createForID(dataID, name, routeName) {
-	    __webpack_require__(1)(!__webpack_require__(3).isClientID(dataID), 'RelayQueryPath.createForID: Expected dataID to be a server id, got ' + '`%s`.', dataID);
+	    // invariant(
+	    //   !RelayRecord.isClientID(dataID),
+	    //   'RelayQueryPath.createForID: Expected dataID to be a server id, got ' +
+	    //   '`%s`.',
+	    //   dataID
+	    // );
 	    return {
 	      dataID: dataID,
 	      name: name,
@@ -7229,6 +7234,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var responseData = state.responseData;
 
 	    var recordState = this._store.getRecordState(recordID);
+	    console.log('in ROOT, got RECORDSTATE', recordState, 'RECORDID', recordID, 'PATH', path, 'RESPONSEDATA', responseData);
 
 	    // GraphQL should never return undefined for a field
 	    if (responseData == null) {
@@ -7299,13 +7305,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	      return;
 	    }
 
+	    console.log('------------------------!!!!!!!!!!!!!!!!!!!>>>>>>>>>>>>>>');
 	    if (!field.canHaveSubselections()) {
+	      console.log('----------------WRITING SCALAR RECORDID', recordID);
 	      this._writeScalar(field, state, recordID, fieldData);
 	    } else if (field.isConnection()) {
 	      this._writeConnection(field, state, recordID, fieldData);
 	    } else if (field.isPlural()) {
+	      console.log('----------------WRITING plural RECORDID', recordID);
 	      this._writePluralLink(field, state, recordID, fieldData);
 	    } else {
+	      console.log('----------------WRITING RECORDID', recordID);
 	      this._writeLink(field, state, recordID, fieldData);
 	    }
 	  };
@@ -8493,9 +8503,9 @@ return /******/ (function(modules) { // webpackBootstrap
 	   */
 
 
-	  RelayRecordWriter.prototype.applyRangeElementUpdate = function applyRangeElementUpdate(parentID, mutatedFieldName, nodeID, operation) {
+	  RelayRecordWriter.prototype.applyRangeElementUpdate = function applyRangeElementUpdate(parentID, mutatedFieldName, nodeID, operation, existingRecords) {
 	    if (this._isOptimisticWrite) {
-	      this._applyOptimisticRangeElementUpdate(parentID, mutatedFieldName, nodeID, operation);
+	      this._applyOptimisticRangeElementUpdate(parentID, mutatedFieldName, nodeID, operation, existingRecords);
 	    } else {
 	      this._applyServerRangeElementUpdate(parentID, mutatedFieldName, nodeID, operation);
 	    }
@@ -8516,13 +8526,14 @@ return /******/ (function(modules) { // webpackBootstrap
 	    });
 	  };
 
-	  RelayRecordWriter.prototype._applyOptimisticRangeElementUpdate = function _applyOptimisticRangeElementUpdate(parentID, mutatedFieldName, nodeID, operation) {
+	  RelayRecordWriter.prototype._applyOptimisticRangeElementUpdate = function _applyOptimisticRangeElementUpdate(parentID, mutatedFieldName, nodeID, operation, existingRecords) {
 	    var parentRecord = this._getRecordForWrite(parentID);
 	    var fieldValue = __webpack_require__(3).create(nodeID);
 
 	    if (!parentRecord) {
 	      parentRecord = __webpack_require__(3).create(parentID);
-	      parentRecord[mutatedFieldName] = [];
+	      // copy existing records over
+	      parentRecord[mutatedFieldName] = existingRecords.slice();
 	      this._records[parentID] = parentRecord;
 	    }
 
@@ -8586,6 +8597,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var list = this._getField(parentID, mutatedFieldName);
 
 	    __webpack_require__(1)(list, 'RelayRecordWriter: Cannot apply `%s` update to non-existent list ' + '`%s` with parent of ID: %s.', operation, mutatedFieldName, parentID);
+
 	    if (operation === REMOVE) {
 	      list = list.filter(function (node) {
 	        return node.__dataID__ !== nodeID;
@@ -21387,9 +21399,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	  __webpack_require__(1)(parentID, 'writeRelayUpdatePayload(): Cannot handle new list element without a configured ' + '`parentID` or a `%.id` field.', config.parentName);
 
 	  var nodeID = getString(newElement || {}, ID) || __webpack_require__(36)();
-	  var elementData = (0, _extends3['default'])({}, newElement, {
-	    id: nodeID
-	  });
+	  newElement['id'] = nodeID;
+	  var elementData = (0, _extends3['default'])({}, newElement);
 
 	  return [parentID, nodeID, elementData];
 	}
@@ -21415,7 +21426,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    nodeID = _prepareSimpleRangeAd[1];
 	    rangeData = _prepareSimpleRangeAd[2];
 
-	    addRangeElement(writer, operation, config, connectionParentID, nodeID, rangeData);
+	    addRangeElement(writer, operation, config, connectionParentID, nodeID, rangeData, isOptimisticUpdate);
 	  } else {
 	    var _ret = function () {
 	      // Extracts the new edge from the payload
@@ -21426,7 +21437,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	          v: void 0
 	        };
 	      }
-
 	      // Extract the id of the node with the connection that we are adding to.
 	      var connectionParentID = config.parentID;
 	      if (!connectionParentID) {
@@ -21478,16 +21488,32 @@ return /******/ (function(modules) { // webpackBootstrap
 	 * Writes the node data for the given field to the store and prepends/appends
 	 * the node to the given connection.
 	 */
-	function addRangeElement(writer, operation, config, parentID, newElementID, newElementData) {
+	function addRangeElement(writer, operation, config, parentID, newElementID, newElementData, isOptimisticUpdate) {
 	  var recordWriter = writer.getRecordWriter();
+	  var store = writer.getRecordStore();
 	  var rangeBehavior = __webpack_require__(73)(config.rangeBehaviors, []);
 	  if (!rangeBehavior || rangeBehavior === IGNORE) {
 	    __webpack_require__(5)(rangeBehavior, 'Using `null` as a rangeBehavior value is deprecated. Use `ignore` to avoid ' + 'refetching a range.');
 	    return;
 	  }
 
+	  // const path = RelayQueryPath.createForID(newElementID, config.listName);
+	  // const path = RelayQueryPath.getPath({}, nodeField, newElementID);
+	  // console.log('<><><><><><>sdgdr:');
+	  // console.log(writer._store._records);
+	  // console.log('*************');
+	  // console.log(writer._store._storage);
+	  // console.log('*************');
+	  // console.log(writer._queryTracker);
+	  // console.log('*************');
+	  // console.log(writer._writer);
+	  // console.log('*************');
+	  // console.log(store.getFieldNameFromKey(parentID));
+	  // console.log(path);
+	  // let path = store.getPathToRecord(parentID);
+	  // console.log('got path', path);
 	  var path = __webpack_require__(9).createForID(newElementID, config.listName);
-	  __webpack_require__(1)(path, 'writeRelayUpdatePayload(): Expected a path for connection record, `%s`.', parentID);
+	  __webpack_require__(1)(path, 'writeRelayUpdatePayload(): Expected a path for list record, `%s`.', parentID);
 
 	  var nodeField = __webpack_require__(2).Field.build({
 	    fieldName: config.listName,
@@ -21497,12 +21523,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	      isPlural: false
 	    }
 	  });
+	  // path, EDGES_FIELD, edgeID
+	  // path = RelayQueryPath.getPath(path, nodeField, newElementID);
+	  // path = {};
+	  console.log('new path', path);
+
 	  // create the element record
 	  writer.createRecordIfMissing(nodeField, newElementID, path, newElementData);
-
 	  // append/prepend the item to the range.
 	  if (rangeBehavior in __webpack_require__(15).RANGE_OPERATIONS) {
-	    recordWriter.applyRangeElementUpdate(parentID, config.listName, newElementID, rangeBehavior);
+	    var existingRecords = isOptimisticUpdate ? store.getField(parentID, config.listName) : [];
+	    recordWriter.applyRangeElementUpdate(parentID, config.listName, newElementID, rangeBehavior, existingRecords);
 	    writer.recordUpdate(parentID);
 	  } else {
 	    console.error('writeRelayUpdatePayload(): invalid range operation `%s`, valid ' + 'options are `%s`, `%s`, `%s`, or `%s`.', rangeBehavior, APPEND, PREPEND, IGNORE, REFETCH);
@@ -21527,8 +21558,10 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  var edgeID = __webpack_require__(72)(connectionID, nodeID);
 	  var path = store.getPathToRecord(connectionID);
+	  console.log('got path', path);
 	  __webpack_require__(1)(path, 'writeRelayUpdatePayload(): Expected a path for connection record, `%s`.', connectionID);
 	  path = __webpack_require__(9).getPath(path, EDGES_FIELD, edgeID);
+	  console.log('new path for connection is', path);
 
 	  // create the edge record
 	  writer.createRecordIfMissing(EDGES_FIELD, edgeID, path, edgeData);
