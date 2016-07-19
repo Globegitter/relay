@@ -1996,12 +1996,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	 */
 	var RelayQueryPath = {
 	  createForID: function createForID(dataID, name, routeName) {
-	    // invariant(
-	    //   !RelayRecord.isClientID(dataID),
-	    //   'RelayQueryPath.createForID: Expected dataID to be a server id, got ' +
-	    //   '`%s`.',
-	    //   dataID
-	    // );
+	    __webpack_require__(1)(!__webpack_require__(3).isClientID(dataID), 'RelayQueryPath.createForID: Expected dataID to be a server id, got ' + '`%s`.', dataID);
 	    return {
 	      dataID: dataID,
 	      name: name,
@@ -7234,7 +7229,6 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var responseData = state.responseData;
 
 	    var recordState = this._store.getRecordState(recordID);
-	    console.log('in ROOT, got RECORDSTATE', recordState, 'RECORDID', recordID, 'PATH', path, 'RESPONSEDATA', responseData);
 
 	    // GraphQL should never return undefined for a field
 	    if (responseData == null) {
@@ -7305,17 +7299,13 @@ return /******/ (function(modules) { // webpackBootstrap
 	      return;
 	    }
 
-	    console.log('------------------------!!!!!!!!!!!!!!!!!!!>>>>>>>>>>>>>>');
 	    if (!field.canHaveSubselections()) {
-	      console.log('----------------WRITING SCALAR RECORDID', recordID);
 	      this._writeScalar(field, state, recordID, fieldData);
 	    } else if (field.isConnection()) {
 	      this._writeConnection(field, state, recordID, fieldData);
 	    } else if (field.isPlural()) {
-	      console.log('----------------WRITING plural RECORDID', recordID);
 	      this._writePluralLink(field, state, recordID, fieldData);
 	    } else {
-	      console.log('----------------WRITING RECORDID', recordID);
 	      this._writeLink(field, state, recordID, fieldData);
 	    }
 	  };
@@ -21215,13 +21205,17 @@ return /******/ (function(modules) { // webpackBootstrap
 	  var configs = _ref.configs;
 	  var isOptimisticUpdate = _ref.isOptimisticUpdate;
 
+	  var pathForConfig = {};
 	  configs.forEach(function (config) {
 	    switch (config.type) {
 	      case __webpack_require__(23).NODE_DELETE:
 	        handleNodeDelete(writer, payload, config);
 	        break;
 	      case __webpack_require__(23).RANGE_ADD:
-	        handleRangeAdd(writer, payload, operation, config, isOptimisticUpdate);
+	        var path = handleRangeAdd(writer, payload, operation, config, isOptimisticUpdate);
+	        if (config.newElementName && path) {
+	          pathForConfig[config.newElementName] = path;
+	        }
 	        break;
 	      case __webpack_require__(23).RANGE_DELETE:
 	        handleRangeDelete(writer, payload, config);
@@ -21233,8 +21227,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	        console.error('Expected a valid mutation handler type, got `%s`.', config.type);
 	    }
 	  });
-
-	  handleMerge(writer, payload, operation);
+	  handleMerge(writer, payload, operation, pathForConfig);
 	}
 
 	/**
@@ -21295,7 +21288,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	 * updating each top-level field in the data according the fetched
 	 * fields/fragments.
 	 */
-	function handleMerge(writer, payload, operation) {
+	function handleMerge(writer, payload, operation, pathForConfig) {
 	  var store = writer.getRecordStore();
 
 	  // because optimistic payloads may not contain all fields, we loop over
@@ -21316,7 +21309,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    var rootID = store.getDataID(fieldName);
 	    // check for valid data (has an ID or is an array) and write the field
 	    if (ID in payloadData || rootID || Array.isArray(payloadData)) {
-	      mergeField(writer, fieldName, payloadData, operation);
+	      mergeField(writer, fieldName, payloadData, operation, pathForConfig);
 	    }
 	  }
 	}
@@ -21324,7 +21317,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	/**
 	 * Merges the results of a single top-level field into the store.
 	 */
-	function mergeField(writer, fieldName, payload, operation) {
+	function mergeField(writer, fieldName, payload, operation, pathForConfig) {
 	  // don't write mutation/subscription metadata fields
 	  if (fieldName in IGNORED_KEYS) {
 	    return;
@@ -21333,7 +21326,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    payload.forEach(function (item) {
 	      if (typeof item === 'object' && item != null && !Array.isArray(item)) {
 	        if (getString(item, ID)) {
-	          mergeField(writer, fieldName, item, operation);
+	          mergeField(writer, fieldName, item, operation, pathForConfig);
 	        }
 	      }
 	    });
@@ -21344,11 +21337,11 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  var store = writer.getRecordStore();
 	  var recordID = getString(payloadData, ID);
-	  var path = void 0;
+	  var path = pathForConfig[fieldName];
 
-	  if (recordID != null) {
+	  if (recordID != null && !path) {
 	    path = __webpack_require__(9).createForID(recordID, 'writeRelayUpdatePayload');
-	  } else {
+	  } else if (!path) {
 	    recordID = store.getDataID(fieldName);
 	    if (!recordID) {
 	      __webpack_require__(1)(false, 'writeRelayUpdatePayload(): Expected a record ID in the response ' + 'payload supplied to update the store for field `%s`, ' + 'payload keys [%s], operation name `%s`.', fieldName, (0, _keys2['default'])(payload).join(', '), operation.getName());
@@ -21419,6 +21412,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	  var connectionParentID = void 0;
 	  var nodeID = void 0;
 	  var rangeData = void 0;
+	  var path = null;
 	  if (config.newElementName) {
 	    var _prepareSimpleRangeAd = _prepareSimpleRangeAdd(writer, payload, operation, config, isOptimisticUpdate);
 
@@ -21426,7 +21420,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	    nodeID = _prepareSimpleRangeAd[1];
 	    rangeData = _prepareSimpleRangeAd[2];
 
-	    addRangeElement(writer, operation, config, connectionParentID, nodeID, rangeData, isOptimisticUpdate);
+	    path = addRangeElement(writer, operation, config, connectionParentID, nodeID, rangeData, isOptimisticUpdate);
 	  } else {
 	    var _ret = function () {
 	      // Extracts the new edge from the payload
@@ -21434,7 +21428,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	      var edgeNode = edge && getObject(edge, NODE);
 	      if (!edge || !edgeNode) {
 	        return {
-	          v: void 0
+	          v: null
 	        };
 	      }
 	      // Extract the id of the node with the connection that we are adding to.
@@ -21482,6 +21476,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	      __webpack_require__(71).deleteClientIDForMutation(clientMutationID);
 	    }
 	  }
+
+	  return path;
 	}
 
 	/**
@@ -21494,26 +21490,16 @@ return /******/ (function(modules) { // webpackBootstrap
 	  var rangeBehavior = __webpack_require__(73)(config.rangeBehaviors, []);
 	  if (!rangeBehavior || rangeBehavior === IGNORE) {
 	    __webpack_require__(5)(rangeBehavior, 'Using `null` as a rangeBehavior value is deprecated. Use `ignore` to avoid ' + 'refetching a range.');
-	    return;
+	    return null;
 	  }
 
-	  // const path = RelayQueryPath.createForID(newElementID, config.listName);
-	  // const path = RelayQueryPath.getPath({}, nodeField, newElementID);
-	  // console.log('<><><><><><>sdgdr:');
-	  // console.log(writer._store._records);
-	  // console.log('*************');
-	  // console.log(writer._store._storage);
-	  // console.log('*************');
-	  // console.log(writer._queryTracker);
-	  // console.log('*************');
-	  // console.log(writer._writer);
-	  // console.log('*************');
-	  // console.log(store.getFieldNameFromKey(parentID));
-	  // console.log(path);
-	  // let path = store.getPathToRecord(parentID);
-	  // console.log('got path', path);
-	  var path = __webpack_require__(9).createForID(newElementID, config.listName);
-	  __webpack_require__(1)(path, 'writeRelayUpdatePayload(): Expected a path for list record, `%s`.', parentID);
+	  var path = __webpack_require__(9).create(__webpack_require__(2).Root.build('writeRelayUpdatePayload', config.newElementName, null, null, {
+	    identifyingArgName: null,
+	    identifyingArgType: null,
+	    isAbstract: true,
+	    isDeferred: false,
+	    isPlural: false
+	  }, ANY_TYPE));
 
 	  var nodeField = __webpack_require__(2).Field.build({
 	    fieldName: config.listName,
@@ -21523,10 +21509,7 @@ return /******/ (function(modules) { // webpackBootstrap
 	      isPlural: false
 	    }
 	  });
-	  // path, EDGES_FIELD, edgeID
-	  // path = RelayQueryPath.getPath(path, nodeField, newElementID);
-	  // path = {};
-	  console.log('new path', path);
+	  path = __webpack_require__(9).getPath(path, nodeField, newElementID);
 
 	  // create the element record
 	  writer.createRecordIfMissing(nodeField, newElementID, path, newElementData);
@@ -21538,6 +21521,8 @@ return /******/ (function(modules) { // webpackBootstrap
 	  } else {
 	    console.error('writeRelayUpdatePayload(): invalid range operation `%s`, valid ' + 'options are `%s`, `%s`, `%s`, or `%s`.', rangeBehavior, APPEND, PREPEND, IGNORE, REFETCH);
 	  }
+
+	  return path;
 	}
 
 	/**
@@ -21558,10 +21543,8 @@ return /******/ (function(modules) { // webpackBootstrap
 
 	  var edgeID = __webpack_require__(72)(connectionID, nodeID);
 	  var path = store.getPathToRecord(connectionID);
-	  console.log('got path', path);
 	  __webpack_require__(1)(path, 'writeRelayUpdatePayload(): Expected a path for connection record, `%s`.', connectionID);
 	  path = __webpack_require__(9).getPath(path, EDGES_FIELD, edgeID);
-	  console.log('new path for connection is', path);
 
 	  // create the edge record
 	  writer.createRecordIfMissing(EDGES_FIELD, edgeID, path, edgeData);
